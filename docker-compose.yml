@@ -1,0 +1,30 @@
+version: '3'
+
+volumes:
+  database_savings:
+  server_logs:
+services:
+  mdb:
+    image: mongo:7.0.4
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: root_password
+    volumes:
+      - database_savings:/data/db
+    ports:
+      - "27017:27017"
+  server:
+    image: goportfolio
+    volumes:
+      - server_logs:/opt/app/logs
+    ports:
+      - "9000:9000"
+    depends_on:
+      - mdb
+    links:
+      - mdb
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      DATA: /link/to/data.zip
