@@ -14,6 +14,11 @@ services:
       - "27017:27017"
   server:
     image: goportfolio
+    environment:
+      MDB_ROOT_USERNAME: root
+      MDB_ROOT_PASSWORD: root_password
+      # TODO: Change this to release
+      GIN_MODE: debug
     ports:
       - "9000:9000"
     depends_on:
