@@ -1,0 +1,39 @@
+{{ define "config" }}
+    <!DOCTYPE html>
+    <html lang="de">
+    {{ template "head" . }}
+    <body>
+    {{ template "header" . }}
+    <main>
+        <h1>Admin</h1>
+        <p>
+            Websites hinzufügen oder aktualisieren oder statische Dateien herunterladen.
+        </p>
+        <h2>Dateien hochladen</h2>
+        <p>
+            Lade ein ZIP-Archiv hoch, um Websites hinzuzufügen oder zu aktualisieren.
+            Dabei werden Markdown-Dateien im root-Verzeichnis des Archivs in die
+            Server-Datenbank übernommen und aus diesen Daten Websites
+            generiert. Die Dateien müssen die Endung <code>.md</code> haben.
+        </p>
+        <p>
+            Dateien im Verzeichnis <code>static</code> werden unverändert übernommen und
+            in das <code>static</code>-Verzeichnis des Webservers kopiert.
+        </p>
+        <form action="/upload" method="post" enctype="multipart/form-data">
+            <input type="file" name="file" id="file">
+            <input type="submit" value="Hochladen">
+        </form>
+        <h2>Dateien herunterladen</h2>
+        <p>
+            Erzeuge eine ZIP-Datei mit allen statisch generierten Websites und Dateien und lade
+            diese herunter.
+        </p>
+        <form action="/download" method="post">
+            <input type="submit" value="Herunterladen">
+        </form>
+    </main>
+    {{ template "footer" . }}
+    </body>
+    </html>
+{{ end }}

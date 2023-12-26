@@ -28,7 +28,6 @@ const (
 	statDir = "./static"
 	tmplDir = "./templates"
 	tempDir = "./tmp"
-	pageDir = "./pages"
 )
 
 var (
@@ -74,25 +73,28 @@ func main() {
 		Collection(getEnvOrElse("DB_PAGE_COL", "pages"))
 
 	// bind gin routes
+	authAccount := gin.Accounts{
+		"admin": os.Getenv("ADMIN_PASSWORD"),
+	}
 	router := gin.Default()
 	router.LoadHTMLGlob(path.Join(tmplDir, "*.gohtml"))
 	router.Static("/static", statDir)
-	router.NoRoute(pageNotFoundHandler)
-	router.GET("/", indexHandler)
-	router.GET("/pages/:page", pageHandler)
-	router.GET("/download-static", handleDownloadStatic)
-	router.POST("/generate-static", handleGenerateStatic)
-	router.POST("/upload", handleUpload)
+	router.NoRoute(handle404)
+	router.GET("/", handleIndex)
+	router.GET("/pages/:page", handlePage)
+	router.GET("/config", handleAdmin)
+	router.POST("/upload", gin.BasicAuth(authAccount), handleUpload)
+	router.POST("/download", gin.BasicAuth(authAccount), handleDownload)
 	err = router.Run(":" + getEnvOrElse("PORT", "9000"))
 	checkErr(err)
 }
 
 //#region page handlers
 
-// pageNotFoundHandler handles any request that does not match any other route;
+// handle404 handles any request that does not match any other route;
 // the page's title is 'Nicht gefunden'
-func pageNotFoundHandler(c *gin.Context) {
-	log.Println("pageNotFoundHandler")
+func handle404(c *gin.Context) {
+	log.Println("handle404")
 	menu, err := loadMenu()
 	if checkInternalServerErr(c, err) {
 		return
@@ -105,10 +107,10 @@ func pageNotFoundHandler(c *gin.Context) {
 	})
 }
 
-// indexHandler handles the request for the index page;
+// handleIndex handles the request for the index page;
 // the index page's title is 'Start'
-func indexHandler(c *gin.Context) {
-	log.Println("indexHandler")
+func handleIndex(c *gin.Context) {
+	log.Println("handleIndex")
 	menu, err := loadMenu()
 	if checkInternalServerErr(c, err) {
 		return
@@ -121,15 +123,15 @@ func indexHandler(c *gin.Context) {
 	})
 }
 
-// pageHandler handles the request for any page;
+// handlePage handles the request for any page;
 // the page's title is received from the request's path;
-// if the page does not exist, the request is handled by pageNotFoundHandler
-func pageHandler(c *gin.Context) {
-	log.Println("pageHandler")
+// if the page does not exist, the request is handled by handle404
+func handlePage(c *gin.Context) {
+	log.Println("handlePage")
 	title := c.Param("page")
 	p, err := searchPageData(title)
 	if errors.Is(err, mongo.ErrNoDocuments) {
-		pageNotFoundHandler(c)
+		handle404(c)
 		return
 	}
 	if checkInternalServerErr(c, err) {
@@ -146,6 +148,22 @@ func pageHandler(c *gin.Context) {
 		Content: template.HTML(blackfriday.Run(p.Content)),
 		LastMod: p.LastMod,
 		Year:    time.Now().Year(),
+	})
+}
+
+// handleAdmin handles the request for the config page;
+// the config page's title is 'Konfiguration'
+func handleAdmin(c *gin.Context) {
+	log.Println("handleAdmin")
+	menu, err := loadMenu()
+	if checkInternalServerErr(c, err) {
+		return
+	}
+	c.HTML(http.StatusOK, "config", Page{
+		Menu:        menu,
+		Title:       "Admin",
+		OmitModTime: true,
+		Year:        time.Now().Year(),
 	})
 }
 
@@ -169,97 +187,6 @@ func loadMenu() ([]string, error) {
 		menu = append(menu, res.Title)
 	}
 	return menu, nil
-}
-
-//#endregion
-
-//#region handleDownloadStatic
-
-// handleDownloadStatic handles the serving of a zip file containing all static files;
-func handleDownloadStatic(c *gin.Context) {
-	log.Println("handleDownloadStatic")
-	// TODO: move zip file creation to handleGenerateStatic
-	zipName := "static.zip"
-	log.Println("handleDownloadStatic - creating zip file:", zipName)
-	// create temp dir to store zip into to
-	err := os.Mkdir(tempDir, os.ModePerm)
-	if checkInternalServerErr(c, err) {
-		return
-	}
-	// create the zip archive
-	pGen := path.Join(tempDir, zipName)
-	f, err := os.Create(pGen)
-	if checkInternalServerErr(c, err) {
-		return
-	}
-	defer f.Close()
-	w := zip.NewWriter(f)
-	defer w.Close()
-	// iterate over all files in stat dir and page dir and copy to zip archive
-	log.Println("handleDownloadStatic - adding files to zip file:", zipName)
-	err = filepath.Walk(statDir, func(p string, fi os.FileInfo, err error) error {
-		return addFileToZip(p, fi, err, w, false)
-	})
-	err = filepath.Walk(pageDir, func(p string, fi os.FileInfo, err error) error {
-		return addFileToZip(p, fi, err, w, true)
-	})
-	if checkInternalServerErr(c, err) {
-		return
-	}
-	log.Println("handleDownloadStatic - sending zip file:", zipName)
-	c.FileAttachment(path.Join(tempDir, zipName), zipName)
-	// delete zip file after request closes (hopefully)
-	go func(c *gin.Context) {
-		<-c.Writer.CloseNotify()
-		log.Println("handleDownloadStatic - deleting zip file:", zipName)
-		_ = os.Remove(pGen)
-	}(c)
-}
-
-// addFileToZip adds a file specified by it name and os.FileInfo to a zip file using a zip.Writer;
-// if addDir is set to true, the file is added with its directory tree,
-// otherwise only the file is added ti the zip file's root directory
-func addFileToZip(p string, fi os.FileInfo, err error, w *zip.Writer, addDir bool) error {
-	if err != nil {
-		return err
-	}
-	if fi.IsDir() {
-		return nil
-	}
-	log.Println("addFileToZip - adding file to zip:", p)
-	var fw io.Writer
-	if addDir {
-		fw, err = w.Create(fi.Name())
-	} else {
-		fw, err = w.Create(p)
-	}
-	if err != nil {
-		return err
-	}
-	f, err := os.Open(p)
-	if err != nil {
-		return err
-	}
-	defer f.Close()
-	_, err = io.Copy(fw, f)
-	return err
-}
-
-//#endregion
-
-//#region handleGenerateStatic
-
-func handleGenerateStatic(c *gin.Context) {
-	log.Println("handleGenerateStatic")
-	// TODO: generate and save static files
-	//		- get page data from DB
-	//		- create page from template and blackfriday
-	//		- parse page templates using template.ParseGlob
-	//		- execute page template with page data and write to file
-	//		- create zip file from static dir and page dir
-	//		- send zip file to client
-	c.Status(http.StatusCreated)
-	c.Header("Location", "/downloadStatic")
 }
 
 //#endregion
@@ -397,6 +324,154 @@ func readZipFile(f *zip.File) ([]byte, error) {
 
 //#endregion
 
+//#region handleDownload
+
+func handleDownload(c *gin.Context) {
+	log.Println("handleDownload")
+	// create temp dir to store static files and zip archive in
+	err := os.Mkdir(tempDir, os.ModePerm)
+	if checkInternalServerErr(c, err) {
+		return
+	}
+
+	log.Println("handleDownload - creating static files")
+	menu, err := loadMenu()
+	if checkInternalServerErr(c, err) {
+		return
+	}
+	// query all pages
+	cur, err := pageCol.Find(ctx, bson.M{})
+	if checkInternalServerErr(c, err) {
+		return
+	}
+	// parse data and create html files
+	for cur.Next(ctx) {
+		res := PageData{}
+		err = cur.Decode(&res)
+		if checkInternalServerErr(c, err) {
+			return
+		}
+		p := Page{
+			Menu:        menu,
+			Title:       res.Title,
+			Content:     template.HTML(blackfriday.Run(res.Content)),
+			LastMod:     res.LastMod,
+			OmitModTime: false,
+			Year:        time.Now().Year(),
+		}
+		err = createPageFromTemplate(p, "page", res.Title)
+		if checkInternalServerErr(c, err) {
+			return
+		}
+	}
+	// create index page
+	err = createPageFromTemplate(Page{
+		Menu:        menu,
+		Title:       "Start",
+		OmitModTime: true,
+		Year:        time.Now().Year(),
+	}, "index", "index")
+	if checkInternalServerErr(c, err) {
+		return
+	}
+
+	// create the zip archive
+	zipName := "static.zip"
+	pGen := path.Join(tempDir, zipName)
+	err = createZipFileAndCollectFiles(pGen)
+	if checkInternalServerErr(c, err) {
+		return
+	}
+	// send zip file to client
+	log.Println("handleDownload - sending zip file:", zipName)
+	c.FileAttachment(pGen, zipName)
+
+	// delete zip file after request closes (hopefully)
+	log.Println("handleDownload - deleting zip file:", zipName)
+	err = os.Remove(pGen)
+}
+
+// createPageFromTemplate creates a static page from the given PageData, returning whether an error occurred;
+// the page is created using the page template and blackfriday and saved to the temp dir
+func createPageFromTemplate(p Page, tName string, fName string) error {
+	log.Println("createPageFromTemplate - creating static file:", fName+".html")
+	// parse page templates using template.ParseGlob
+	tmpl, err := template.ParseGlob(path.Join(tmplDir, "*.gohtml"))
+	if err != nil {
+		return err
+	}
+	// execute page template with page data and write to file
+	f, err := os.Create(path.Join(tempDir, fName+".html"))
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	err = tmpl.ExecuteTemplate(f, tName, p)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func createZipFileAndCollectFiles(pZip string) error {
+	log.Println("createZipFileAndCollectFiles - creating zip file:", path.Base(pZip))
+	f, err := os.Create(pZip)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	w := zip.NewWriter(f)
+	defer w.Close()
+	// iterate over all files in stat dir and page dir and copy to zip archive
+	log.Println("createZipFileAndCollectFiles - adding files to zip file:", path.Base(pZip))
+	err = filepath.WalkDir(statDir, func(p string, d os.DirEntry, err error) error {
+		return addFileToZip(p, d, err, w, "static")
+	})
+	err = filepath.WalkDir(tempDir, func(p string, d os.DirEntry, err error) error {
+		if path.Ext(p) != ".html" {
+			return nil
+		}
+		if path.Base(p) == "index.html" {
+			err = addFileToZip(p, d, err, w)
+		} else {
+			err = addFileToZip(p, d, err, w, "pages")
+		}
+		if err != nil {
+			return err
+		}
+		// delete file after adding to zip
+		return os.Remove(p)
+	})
+	return nil
+}
+
+// addFileToZip adds a file specified by it name and os.FileInfo to a zip file using a zip.Writer;
+// if addDir is set to true, the file is added with its directory tree,
+// otherwise only the file is added ti the zip file's root directory
+func addFileToZip(p string, d os.DirEntry, err error, w *zip.Writer, dir ...string) error {
+	if err != nil {
+		return err
+	}
+	if d.IsDir() {
+		return nil
+	}
+	log.Println("addFileToZip - adding file to zip:", p)
+	dir = append(dir, d.Name())
+	fw, err := w.Create(path.Join(dir...))
+	if err != nil {
+		return err
+	}
+	f, err := os.Open(p)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	_, err = io.Copy(fw, f)
+	return err
+}
+
+//#endregion
+
 //#region util methods
 
 // checkErr checks whether the given error is not nil;
@@ -412,7 +487,7 @@ func checkErr(err error) {
 // and adds the error to context
 func checkInternalServerErr(c *gin.Context, err error) bool {
 	if err != nil {
-		log.Println(err)
+		log.Println("checkInternalServerErr:", err)
 		c.Status(http.StatusInternalServerError)
 		_ = c.Error(err)
 		return true
