@@ -2,6 +2,7 @@ version: '3'
 
 volumes:
   database_savings:
+  server_savings:
 services:
   mdb:
     image: mongo:7.0.4
@@ -20,6 +21,8 @@ services:
       ADMIN_PASSWORD: 123456
       # TODO: Change this to release
       GIN_MODE: debug
+    volumes:
+        - server_savings:/app/data
     ports:
       - "9000:9000"
     depends_on:
@@ -27,3 +30,4 @@ services:
     links:
       - mdb
     build: .
+    working_dir: /app/data
