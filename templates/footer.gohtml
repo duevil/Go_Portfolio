@@ -1,6 +1,6 @@
 {{ define "footer"}}
     <footer>
-        {{ if not .OmitModTime }}
+        {{ if .LastMod }}
             <p>Diese Seite wurde zuletzt am {{ .LastMod.Format "02.01.2006" }} geändert.</p>
         {{ end }}
         <p>&copy; {{ .Year }} Malte Kasolowsky</p>
