@@ -6,25 +6,18 @@ import (
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
+	"html/template"
 	"log"
+	"net/http"
 	"os"
 	"path"
 )
 
-const (
-	StatDir = "./static"
-	TmplDir = "./templates"
-
-	StaticURL = "static"
-	TmplURL   = "tmpl"
-	PageURL   = "pages"
-
-	index = "index.html"
-)
-
 var (
 	ctx     context.Context
-	pageCol *mongo.Collection
+	fileCol *mongo.Collection
+
+	templates = template.Must(template.ParseGlob("templates/*.*"))
 )
 
 func main() {
@@ -49,7 +42,7 @@ func main() {
 		log.Println("Database connection established, initializing database")
 		// create database and collection
 		db := client.Database(getEnvOrElse("DB_NAME", "portfolio"))
-		pageCol = db.Collection(getEnvOrElse("DB_PAGE_COL", "pages"))
+		fileCol = db.Collection(getEnvOrElse("DB_PAGE_COL", "pages"))
 		log.Println("Database initialized")
 	}
 	// gin initialization
@@ -57,14 +50,17 @@ func main() {
 		log.Println("Initializing server")
 		// bind gin routes
 		router := gin.Default()
-		router.LoadHTMLGlob(path.Join(TmplDir, "*.*"))
-		router.Static(StaticURL, StatDir)
-		// add routes
+		router.SetHTMLTemplate(templates)
 		router.NoRoute(handleNotFound)
-		router.GET("/", handleIndex)
-		router.GET(index, handleIndex)
-		router.GET(path.Join(PageURL, ":name"), handlePage)
-		router.GET(path.Join(TmplURL, ":name"), handleTemplated)
+		indexRedirect := func(c *gin.Context) {
+			// handle index redirect
+			c.Request.URL.Path = path.Join("/", FilePathRoot, "index.html")
+			router.HandleContext(c)
+		}
+		router.GET("/", indexRedirect)
+		router.GET("index", indexRedirect)
+		router.GET("index.html", indexRedirect)
+		router.GET(path.Join(FilePathRoot, "*path"), handleFile)
 		// add auth routes
 		adminUser := getEnvOrElse("ADMIN_USERNAME", "admin")
 		adminPass := getEnvOrElse("ADMIN_PASSWORD", "admin")
@@ -76,9 +72,10 @@ func main() {
 			handleUpload(c, gin.BasicAuth(gin.Accounts{adminUser: adminPass}))
 		})
 		auth := router.Group("/admin", gin.BasicAuth(gin.Accounts{adminUser: adminPass}))
+		auth.GET("/", func(c *gin.Context) { c.Redirect(http.StatusTemporaryRedirect, "/admin/list") })
 		auth.GET("/download", handleDownload)
 		auth.GET("/list", handleList)
-		auth.DELETE(path.Join("/delete", ":name"), handleDelete)
+		auth.DELETE("*path", handleDelete)
 		// run server
 		addr := ":" + getEnvOrElse("GIN_PORT", "9000")
 		log.Println("Starting server on", addr)

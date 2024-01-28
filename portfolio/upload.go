@@ -2,25 +2,24 @@ package main
 
 import (
 	"archive/zip"
-	"bytes"
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"io"
 	"log"
 	"net/http"
 	"os"
 	"path"
-	"time"
+	"path/filepath"
+	"strings"
 )
 
-// handleUpload handles requests for uploading files; the uploaded file is
-// handled according to its extension, i.e. static files are moved to the static
-// directory, templates are moved to the template directory, markdown files are
-// stored in the database and zip files read and its contents iterated over and
-// then handled respectively
+// handleUpload handles requests for uploading files; if the uploaded file is a
+// zip file, it is extracted and all files in the zip file are iterated over and
+// stored in the database using the zip directory structure; else the file is
+// just stored in the database
 //
-// Due to unknown reasons, the auth middleware does not work with the upload of
-// larger files and thus, the auth middleware is called manually after the
+// Due to unknown reasons using an auth middleware with the upload of smaller
+// files like singular markdown files works, but not with larger files like zip
+// files or images, and thus the auth middleware has to be called manually after the
 // uploaded file has been saved
 func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 	log.Println("Upload requested")
@@ -48,30 +47,36 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 		return
 	}
 
+	// open file
 	f, err := os.Open(fPath)
 	if errISE(c, err) {
 		return
 	}
+	defer func() { _ = f.Close() }()
+
 	// handle file according to its extension
 	var location string
-	switch {
-	case Static.MatchesExt(ff.Filename):
-		location = path.Join(StaticURL, ff.Filename)
-		err = handleUploadStatic(ff.Filename, f)
-	case Template.MatchesExt(ff.Filename):
-		location = path.Join(TmplURL, ff.Filename)
-		err = handleUploadTmpl(ff.Filename, f)
-	case Markdown.MatchesExt(ff.Filename):
-		location = path.Join(PageURL, ff.Filename)
-		modTime := time.Now()
-		fi, _err := f.Stat()
-		if _err == nil {
-			modTime = fi.ModTime()
-		}
-		err = handleUploadPage(ff.Filename, f, modTime)
-	case Zipped.MatchesExt(ff.Filename):
-		err = handleUploadZip(ff.Size, f)
+	if path.Ext(ff.Filename) == ".zip" {
 		location = "/admin/list"
+		err = handleUploadZip(ff.Size, f)
+	} else {
+		fi, err := f.Stat()
+		if errISE(c, err) {
+			return
+		}
+		mime, err := mimetype.DetectFile(fPath)
+		if errISE(c, err) {
+			return
+		}
+		location = path.Join(FilePathRoot, ff.Filename)
+		p := MongoFile{
+			Path:     "/" + ff.Filename, // add leading slash
+			Filesize: fi.Size(),
+			LastMod:  fi.ModTime(),
+			Mime:     mime.String(),
+			IsMD:     path.Ext(ff.Filename) == ".md",
+		}
+		err = p.Store(f)
 	}
 	if errISE(c, err) {
 		return
@@ -83,31 +88,52 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 }
 
 // handleUploadZip handles the upload of a zip file; iterates over the files in
-// the zip file and handles them according to their extension
+// the zip file and stores them in the database
 func handleUploadZip(size int64, f *os.File) error {
 	log.Println("Handling upload of zip file:", f.Name())
-	defer func() { _ = f.Close() }()
 	zr, err := zip.NewReader(f, size)
 	if err != nil {
 		return err
 	}
-	for _, zf := range zr.File {
+
+	iterateFunc := func(zf *zip.File) error {
+		// we need to open the file twice:
+		// first to get its mime type and then to store it
 		rc, err := zf.Open()
 		if err != nil {
 			return err
 		}
+		defer func() { _ = rc.Close() }()
+		mime, err := mimetype.DetectReader(rc)
+		if err != nil {
+			return err
+		}
+		rc.Close()
+		fPath, err := handleUploadZipGetUri(f.Name(), zf.Name)
+		if err != nil {
+			return err
+		}
+		// open file again and store it
+		rc, err = zf.Open()
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rc.Close() }()
+		p := MongoFile{
+			Path:     "/" + fPath, // add leading slash
+			Filesize: int64(zf.UncompressedSize64),
+			LastMod:  zf.Modified,
+			Mime:     mime.String(),
+			IsMD:     path.Ext(zf.FileInfo().Name()) == ".md",
+		}
+		return p.Store(rc)
+	}
+
+	for _, zf := range zr.File {
 		if zf.FileInfo().IsDir() {
 			continue
 		}
-		name := path.Base(zf.Name)
-		switch {
-		case Static.MatchesExt(name):
-			err = handleUploadStatic(name, rc)
-		case Template.MatchesExt(name):
-			err = handleUploadTmpl(name, rc)
-		case Markdown.MatchesExt(name):
-			err = handleUploadPage(name, rc, zf.Modified)
-		}
+		err = iterateFunc(zf)
 		if err != nil {
 			return err
 		}
@@ -115,49 +141,32 @@ func handleUploadZip(size int64, f *os.File) error {
 	return err
 }
 
-// handleUploadStatic handles the upload of a static file; the file is copied from
-// the given reader to the StatDir
-func handleUploadStatic(name string, rc io.ReadCloser) error {
-	log.Println("Handling upload of static file:", name)
-	defer func() { _ = rc.Close() }()
-	f, err := os.Create(path.Join(StatDir, name))
+func handleUploadZipGetUri(zipName, fileName string) (string, error) {
+	log.Println("Getting URI for zip file:", zipName, "and file:", fileName)
+	zipName = path.Base(zipName)
+	zipName = zipName[:len(zipName)-len(path.Ext(zipName))]
+	fPath, err := filepath.Rel(zipName, fileName)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer func() { _ = f.Close() }()
-	_, err = io.Copy(f, rc)
-	return err
-}
-
-// handleUploadTmpl handles the upload of a template; the template is copied from
-// the given reader to the TmplDir
-func handleUploadTmpl(name string, rc io.ReadCloser) error {
-	log.Println("Handling upload of template file:", name)
-	defer func() { _ = rc.Close() }()
-	f, err := os.Create(path.Join(TmplDir, name))
+	// remove ../ from path
+	if strings.HasPrefix(fPath, "..") {
+		fPath, err = filepath.Rel("..", fPath)
+		if err != nil {
+			return "", err
+		}
+	}
+	fPath, err = filepath.Rel(FilePathRoot, fPath)
 	if err != nil {
-		return err
+		return "", err
 	}
-	defer func() { _ = f.Close() }()
-	_, err = io.Copy(f, rc)
-	return err
-}
-
-// handleUploadPage handles the upload of a markdown page; reads the content of
-// the page from the given reader and write the page to the database
-func handleUploadPage(name string, rc io.ReadCloser, mod time.Time) error {
-	log.Println("Handling upload of page:", name)
-	defer func() { _ = rc.Close() }()
-	buf := bytes.Buffer{}
-	_, err := io.Copy(&buf, rc)
-	if err != nil {
-		return err
+	// remove ../ from path
+	if strings.HasPrefix(fPath, "..") {
+		fPath, err = filepath.Rel("..", fPath)
+		if err != nil {
+			return "", err
+		}
 	}
-	p := PageDataDB{
-		Name:    name,
-		Content: primitive.Binary{Data: buf.Bytes()},
-		LastMod: mod,
-	}
-	p.TrimExt()
-	return p.WriteToDB()
+	log.Println("URI for zip file:", fPath)
+	return fPath, nil
 }

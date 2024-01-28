@@ -3,7 +3,6 @@ package main
 import (
 	"errors"
 	"github.com/gin-gonic/gin"
-	"go.mongodb.org/mongo-driver/mongo"
 	"log"
 	"net/http"
 	"os"
@@ -54,5 +53,5 @@ func errNotFound(c *gin.Context, err error) bool {
 
 // isNotFound checks whether the given error is mongo.ErrNoDocuments
 func isNotFound(err error) bool {
-	return errors.Is(err, mongo.ErrNoDocuments) || os.IsNotExist(err)
+	return errors.Is(ErrNotFound, err) || os.IsNotExist(err)
 }
