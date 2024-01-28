@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"files"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -68,8 +69,8 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 		if errISE(c, err) {
 			return
 		}
-		location = path.Join(URIRoot, ff.Filename)
-		p := MongoFile{
+		location = path.Join(files.URIRoot, ff.Filename)
+		p := files.MongoFile{
 			URI:      "/" + ff.Filename, // add leading slash
 			Filesize: fi.Size(),
 			LastMod:  fi.ModTime(),
@@ -120,7 +121,7 @@ func handleUploadZip(size int64, f *os.File) error {
 			return err
 		}
 		defer cls(rc)
-		p := MongoFile{
+		p := files.MongoFile{
 			URI:      "/" + fPath, // add leading slash
 			Filesize: int64(zf.UncompressedSize64),
 			LastMod:  zf.Modified,
@@ -160,7 +161,7 @@ func handleUploadZipGetUri(zipName, fileName string) (string, error) {
 			return "", err
 		}
 	}
-	fPath, err = filepath.Rel(URIRoot, fPath)
+	fPath, err = filepath.Rel(files.URIRoot, fPath)
 	if err != nil {
 		return "", err
 	}

@@ -2,6 +2,7 @@ FROM golang:1.21.3 AS build
 
 WORKDIR /portfolio
 COPY ./portfolio .
+COPY ./internal ./internal
 RUN mkdir -p vendor
 COPY go.mod .
 COPY go.sum .

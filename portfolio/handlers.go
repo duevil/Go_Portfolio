@@ -1,6 +1,7 @@
 package main
 
 import (
+	"files"
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
@@ -20,7 +21,7 @@ func handleFile(c *gin.Context) {
 	file := c.Param("uri")
 	log.Println("File requested:", file)
 	// get file from database
-	f, err := GetFromDB(file)
+	f, err := files.GetFromDB(file)
 	if errNotFound(c, err) || errISE(c, err) {
 		return
 	}
@@ -47,7 +48,7 @@ func handleFile(c *gin.Context) {
 // handleList handles requests to list all files in the database
 func handleList(c *gin.Context) {
 	log.Println("List requested")
-	list, err := ListAll()
+	list, err := files.ListAll()
 	if errISE(c, err) {
 		return
 	}
@@ -58,7 +59,7 @@ func handleList(c *gin.Context) {
 func handleDelete(c *gin.Context) {
 	name := c.Param("uri")
 	log.Println("Delete requested:", name)
-	f, err := GetFromDB(name)
+	f, err := files.GetFromDB(name)
 	if errNotFound(c, err) || errISE(c, err) {
 		return
 	}

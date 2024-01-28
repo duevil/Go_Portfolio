@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"files"
 	"github.com/gin-gonic/gin"
 	"io"
 	"log"
@@ -55,7 +56,7 @@ func errISE(c *gin.Context, err error) bool {
 // errNotFound checks whether the given error is ErrNotFound; if the error is
 // ErrNotFound, it is logged using log.Println and handleNotFound is called
 func errNotFound(c *gin.Context, err error) bool {
-	if errors.Is(ErrNotFound, err) || os.IsNotExist(err) {
+	if errors.Is(files.ErrNotFound, err) || os.IsNotExist(err) {
 		log.Println("[Err] Not found:", err)
 		handleNotFound(c)
 		return true

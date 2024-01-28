@@ -1,4 +1,4 @@
-package main
+package files
 
 import (
 	"bytes"
@@ -18,8 +18,8 @@ import (
 )
 
 var (
-	Context  context.Context
-	filesCol *mongo.Collection
+	Context context.Context
+	col     *mongo.Collection
 )
 
 // maxFileSize is the maximum size for file to be stored in the database
@@ -93,7 +93,7 @@ func (p *MongoFile) Store(reader io.Reader) error {
 	// set options to either insert or update the file
 	opts := options.Update().SetUpsert(true)
 	// update the file in the database
-	res, err := filesCol.UpdateOne(Context, bson.M{"name": p.URI}, bson.M{"$set": p}, opts)
+	res, err := col.UpdateOne(Context, bson.M{"name": p.URI}, bson.M{"$set": p}, opts)
 	if err != nil {
 		return err
 	}
@@ -116,7 +116,7 @@ func (p *MongoFile) Open() (io.ReadCloser, error) {
 	}
 	log.Println("Opening file from database:", p.URI)
 	opts := options.FindOne().SetProjection(bson.M{"content": 1})
-	err := filesCol.FindOne(Context, bson.M{"uri": p.URI}, opts).Decode(p)
+	err := col.FindOne(Context, bson.M{"uri": p.URI}, opts).Decode(p)
 	if err != nil {
 		return nil, err
 	}
@@ -128,16 +128,16 @@ func (p *MongoFile) Open() (io.ReadCloser, error) {
 // the database. If the file is stored locally, the file's content is read from
 // the file system.
 func (p *MongoFile) ToPage() (Page, error) {
-	log.Println("Parsing page:", p.URI)
+	log.Println("Parsing file:", p.URI)
 	if !p.IsMD {
 		return Page{}, errors.New("file is not a markdown file")
 	}
-	err := filesCol.FindOne(Context, bson.M{"uri": p.URI}).Decode(p)
+	err := col.FindOne(Context, bson.M{"uri": p.URI}).Decode(p)
 	if err != nil {
 		return Page{}, err
 	}
 	if p.IsLocal {
-		log.Println("Reading page content from file system:", p.URI)
+		log.Println("Reading file content from file system:", p.URI)
 		f, err := os.Open(path.Join(URIRoot, p.URI))
 		if err != nil {
 			return Page{}, err
@@ -163,7 +163,7 @@ func (p *MongoFile) Delete() error {
 	log.Println("Deleting file from database:", p.URI)
 	// we only need to know whether the file is local
 	opts := options.FindOneAndDelete().SetProjection(bson.M{"is_local": 1, "uri": 1})
-	err := filesCol.FindOneAndDelete(Context, bson.M{"uri": p.URI}, opts).Decode(p)
+	err := col.FindOneAndDelete(Context, bson.M{"uri": p.URI}, opts).Decode(p)
 	if errors.Is(err, mongo.ErrNoDocuments) {
 		return nil
 	}
@@ -200,14 +200,15 @@ func (p *MongoFile) Sys() interface{}   { return nil }
 // GetFromDB returns the file with the given uri from the database. The file's
 // content is not read.
 func GetFromDB(uri string) (MongoFile, error) {
+	log.Println("Getting file from database:", uri)
 	var file MongoFile
 	opts := options.FindOne().SetProjection(bson.M{"content": 0})
-	err := filesCol.FindOne(Context, bson.M{"uri": uri}, opts).Decode(&file)
+	err := col.FindOne(Context, bson.M{"uri": uri}, opts).Decode(&file)
 	// if the file is not found and the file is a html file, we search for the file
 	// as a markdown file
 	if errors.Is(ErrNotFound, err) && path.Ext(uri) == ".html" {
 		uri = uri[:len(uri)-len(path.Ext(uri))] + ".md"
-		err = filesCol.FindOne(Context, bson.M{"uri": uri}, opts).Decode(&file)
+		err = col.FindOne(Context, bson.M{"uri": uri}, opts).Decode(&file)
 		if err != nil {
 			return MongoFile{}, err
 		}
@@ -223,7 +224,7 @@ func GetFromDB(uri string) (MongoFile, error) {
 // ListAll lists all files in the database except for MongoFile.Content
 func ListAll() ([]MongoFile, error) {
 	opts := options.Find().SetProjection(bson.M{"content": 0})
-	cursor, err := filesCol.Find(Context, bson.M{}, opts)
+	cursor, err := col.Find(Context, bson.M{}, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -235,4 +236,4 @@ func ListAll() ([]MongoFile, error) {
 	return files, nil
 }
 
-func SetFilesCollection(col *mongo.Collection) { filesCol = col }
+func SetCollection(c *mongo.Collection) { col = c }

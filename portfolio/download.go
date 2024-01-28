@@ -2,6 +2,7 @@ package main
 
 import (
 	"archive/zip"
+	"files"
 	"github.com/gin-gonic/gin"
 	"io"
 	"log"
@@ -33,11 +34,11 @@ func handleDownload(c *gin.Context) {
 
 	// add files
 	log.Println("Collecting files to zip:", fPath)
-	files, err := ListAll()
+	fs, err := files.ListAll()
 	if errISE(c, err) {
 		return
 	}
-	for _, f := range files {
+	for _, f := range fs {
 		err = handleDownloadAddFile(w, f)
 		if errISE(c, err) {
 			return
@@ -56,7 +57,7 @@ func handleDownload(c *gin.Context) {
 // handleDownloadAddFile adds the given file to the given zip writer; if the file
 // is a markdown file, it is converted to HTML and written to the zip writer,
 // else the file is written as-is
-func handleDownloadAddFile(w *zip.Writer, f MongoFile) error {
+func handleDownloadAddFile(w *zip.Writer, f files.MongoFile) error {
 	log.Println("Adding file to zip:", f.URI)
 	// create header
 	h, err := zip.FileInfoHeader(&f)
@@ -66,7 +67,7 @@ func handleDownloadAddFile(w *zip.Writer, f MongoFile) error {
 	if path.Base(f.Name()) == "index.html" {
 		h.Name = "index.html"
 	} else {
-		h.Name = filepath.ToSlash(path.Join(URIRoot, f.URI))
+		h.Name = filepath.ToSlash(path.Join(files.URIRoot, f.URI))
 	}
 	h.Method = zip.Deflate
 	zf, err := w.CreateHeader(h)

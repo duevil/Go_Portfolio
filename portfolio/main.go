@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"files"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
@@ -20,24 +21,24 @@ func main() {
 	{
 		log.Println("Connecting to database")
 		// open database connection
-		Context = context.Background()
+		files.Context = context.Background()
 		auth := options.Credential{
 			Username: os.Getenv("MDB_ROOT_USERNAME"),
 			Password: os.Getenv("MDB_ROOT_PASSWORD"),
 		}
 		opt := options.Client().ApplyURI("mongodb://mdb:27017")
 		opt.SetAuth(auth)
-		client, err := mongo.Connect(Context, opt)
+		client, err := mongo.Connect(files.Context, opt)
 		checkErr(err)
 		// close database connection on exit
-		defer func(c *mongo.Client) { checkErr(c.Disconnect(Context)) }(client)
+		defer func(c *mongo.Client) { checkErr(c.Disconnect(files.Context)) }(client)
 		// check whether the database is reachable
-		err = client.Ping(Context, readpref.Primary())
+		err = client.Ping(files.Context, readpref.Primary())
 		checkErr(err)
 		log.Println("Database connection established, initializing database")
 		// create database and collection
 		db := client.Database(getEnvOrElse("DB_NAME", "portfolio"))
-		SetFilesCollection(db.Collection(getEnvOrElse("DB_FILE_COL", URIRoot)))
+		files.SetCollection(db.Collection(getEnvOrElse("DB_FILE_COL", files.URIRoot)))
 		log.Println("Database initialized")
 	}
 	// gin initialization
@@ -49,13 +50,13 @@ func main() {
 		router.NoRoute(handleNotFound)
 		indexRedirect := func(c *gin.Context) {
 			// handle index redirect
-			c.Request.URL.Path = path.Join("/", URIRoot, "index.html")
+			c.Request.URL.Path = path.Join("/", files.URIRoot, "index.html")
 			router.HandleContext(c)
 		}
 		router.GET("/", indexRedirect)
 		router.GET("index", indexRedirect)
 		router.GET("index.html", indexRedirect)
-		router.GET(path.Join(URIRoot, "*uri"), handleFile)
+		router.GET(path.Join(files.URIRoot, "*uri"), handleFile)
 		// add auth routes
 		adminUser := getEnvOrElse("ADMIN_USERNAME", "admin")
 		adminPass := getEnvOrElse("ADMIN_PASSWORD", "admin")
