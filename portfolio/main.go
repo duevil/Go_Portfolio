@@ -13,36 +13,31 @@ import (
 	"path"
 )
 
-var (
-	ctx     context.Context
-	fileCol *mongo.Collection
-
-	templates = template.Must(template.ParseGlob("templates/*.*"))
-)
+var templates = template.Must(template.ParseGlob("templates/*.*"))
 
 func main() {
 	// database initialization
 	{
 		log.Println("Connecting to database")
 		// open database connection
-		ctx = context.Background()
+		Context = context.Background()
 		auth := options.Credential{
 			Username: os.Getenv("MDB_ROOT_USERNAME"),
 			Password: os.Getenv("MDB_ROOT_PASSWORD"),
 		}
 		opt := options.Client().ApplyURI("mongodb://mdb:27017")
 		opt.SetAuth(auth)
-		client, err := mongo.Connect(ctx, opt)
+		client, err := mongo.Connect(Context, opt)
 		checkErr(err)
 		// close database connection on exit
-		defer func(c *mongo.Client) { checkErr(c.Disconnect(ctx)) }(client)
+		defer func(c *mongo.Client) { checkErr(c.Disconnect(Context)) }(client)
 		// check whether the database is reachable
-		err = client.Ping(ctx, readpref.Primary())
+		err = client.Ping(Context, readpref.Primary())
 		checkErr(err)
 		log.Println("Database connection established, initializing database")
 		// create database and collection
 		db := client.Database(getEnvOrElse("DB_NAME", "portfolio"))
-		fileCol = db.Collection(getEnvOrElse("DB_PAGE_COL", "pages"))
+		SetFilesCollection(db.Collection(getEnvOrElse("DB_FILE_COL", URIRoot)))
 		log.Println("Database initialized")
 	}
 	// gin initialization
@@ -54,13 +49,13 @@ func main() {
 		router.NoRoute(handleNotFound)
 		indexRedirect := func(c *gin.Context) {
 			// handle index redirect
-			c.Request.URL.Path = path.Join("/", FilePathRoot, "index.html")
+			c.Request.URL.Path = path.Join("/", URIRoot, "index.html")
 			router.HandleContext(c)
 		}
 		router.GET("/", indexRedirect)
 		router.GET("index", indexRedirect)
 		router.GET("index.html", indexRedirect)
-		router.GET(path.Join(FilePathRoot, "*path"), handleFile)
+		router.GET(path.Join(URIRoot, "*uri"), handleFile)
 		// add auth routes
 		adminUser := getEnvOrElse("ADMIN_USERNAME", "admin")
 		adminPass := getEnvOrElse("ADMIN_PASSWORD", "admin")
@@ -75,7 +70,7 @@ func main() {
 		auth.GET("/", func(c *gin.Context) { c.Redirect(http.StatusTemporaryRedirect, "/admin/list") })
 		auth.GET("/download", handleDownload)
 		auth.GET("/list", handleList)
-		auth.DELETE("*path", handleDelete)
+		auth.DELETE("*uri", handleDelete)
 		// run server
 		addr := ":" + getEnvOrElse("GIN_PORT", "9000")
 		log.Println("Starting server on", addr)
@@ -86,13 +81,4 @@ func main() {
 		}
 	}
 	log.Println("Server stopped")
-}
-
-// getEnvOrElse returns the value for the given key if os.LookupEnv was successful
-// or else returns the alternative value
-func getEnvOrElse(key string, sElse string) string {
-	if s, ok := os.LookupEnv(key); ok && s != "" {
-		return s
-	}
-	return sElse
 }

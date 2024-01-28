@@ -2,7 +2,6 @@ package main
 
 import (
 	"github.com/gin-gonic/gin"
-	"io"
 	"log"
 	"net/http"
 )
@@ -14,8 +13,11 @@ func handleNotFound(c *gin.Context) {
 	c.HTML(http.StatusNotFound, "404", gin.H{})
 }
 
+// handleFile handles requests for pages, templates and static files; if the
+// requested file is a markdown file, it is converted to HTML and served, else
+// the file is served as-is
 func handleFile(c *gin.Context) {
-	file := c.Param("path")
+	file := c.Param("uri")
 	log.Println("File requested:", file)
 	// get file from database
 	f, err := GetFromDB(file)
@@ -38,25 +40,23 @@ func handleFile(c *gin.Context) {
 	if errISE(c, err) {
 		return
 	}
-	defer func(rc io.ReadCloser) { _ = rc.Close() }(rc)
+	defer cls(rc)
 	c.DataFromReader(http.StatusOK, f.Filesize, f.Mime, rc, nil)
 }
 
-// handleList handles requests to list all pages, templates and static files
+// handleList handles requests to list all files in the database
 func handleList(c *gin.Context) {
 	log.Println("List requested")
-	list, err := ListAllFiles()
+	list, err := ListAll()
 	if errISE(c, err) {
 		return
 	}
 	c.JSON(http.StatusOK, list)
 }
 
-// handleDelete handles requests to delete pages, templates and static files;
-// deletes the requested file from the database or file system; if the file is
-// not found, responds with http.StatusNotFound, else with http.StatusNoContent
+// handleDelete handles requests to delete files from the database
 func handleDelete(c *gin.Context) {
-	name := c.Param("path")
+	name := c.Param("uri")
 	log.Println("Delete requested:", name)
 	f, err := GetFromDB(name)
 	if errNotFound(c, err) || errISE(c, err) {

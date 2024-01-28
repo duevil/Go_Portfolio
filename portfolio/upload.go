@@ -52,7 +52,7 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 	if errISE(c, err) {
 		return
 	}
-	defer func() { _ = f.Close() }()
+	defer cls(f)
 
 	// handle file according to its extension
 	var location string
@@ -68,9 +68,9 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 		if errISE(c, err) {
 			return
 		}
-		location = path.Join(FilePathRoot, ff.Filename)
+		location = path.Join(URIRoot, ff.Filename)
 		p := MongoFile{
-			Path:     "/" + ff.Filename, // add leading slash
+			URI:      "/" + ff.Filename, // add leading slash
 			Filesize: fi.Size(),
 			LastMod:  fi.ModTime(),
 			Mime:     mime.String(),
@@ -103,12 +103,13 @@ func handleUploadZip(size int64, f *os.File) error {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rc.Close() }()
+		defer cls(rc)
 		mime, err := mimetype.DetectReader(rc)
 		if err != nil {
 			return err
 		}
 		rc.Close()
+		// get file uri
 		fPath, err := handleUploadZipGetUri(f.Name(), zf.Name)
 		if err != nil {
 			return err
@@ -118,9 +119,9 @@ func handleUploadZip(size int64, f *os.File) error {
 		if err != nil {
 			return err
 		}
-		defer func() { _ = rc.Close() }()
+		defer cls(rc)
 		p := MongoFile{
-			Path:     "/" + fPath, // add leading slash
+			URI:      "/" + fPath, // add leading slash
 			Filesize: int64(zf.UncompressedSize64),
 			LastMod:  zf.Modified,
 			Mime:     mime.String(),
@@ -141,8 +142,11 @@ func handleUploadZip(size int64, f *os.File) error {
 	return err
 }
 
+// handleUploadZipGetUri returns the uri for the given zip file and file name;
+// the zip file name is stripped of its extension and the file name is made
+// relative to the zip file name; the resulting path is made relative to the
+// URIRoot directory
 func handleUploadZipGetUri(zipName, fileName string) (string, error) {
-	log.Println("Getting URI for zip file:", zipName, "and file:", fileName)
 	zipName = path.Base(zipName)
 	zipName = zipName[:len(zipName)-len(path.Ext(zipName))]
 	fPath, err := filepath.Rel(zipName, fileName)
@@ -156,7 +160,7 @@ func handleUploadZipGetUri(zipName, fileName string) (string, error) {
 			return "", err
 		}
 	}
-	fPath, err = filepath.Rel(FilePathRoot, fPath)
+	fPath, err = filepath.Rel(URIRoot, fPath)
 	if err != nil {
 		return "", err
 	}
@@ -167,6 +171,5 @@ func handleUploadZipGetUri(zipName, fileName string) (string, error) {
 			return "", err
 		}
 	}
-	log.Println("URI for zip file:", fPath)
 	return fPath, nil
 }

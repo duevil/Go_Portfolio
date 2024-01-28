@@ -27,13 +27,13 @@ func handleDownload(c *gin.Context) {
 	if errISE(c, err) {
 		return
 	}
-	defer func(f *os.File) { _ = f.Close() }(f)
+	defer cls(f)
 	w := zip.NewWriter(f)
-	defer func(w *zip.Writer) { _ = w.Close() }(w)
+	defer cls(w)
 
 	// add files
 	log.Println("Collecting files to zip:", fPath)
-	files, err := ListAllFiles()
+	files, err := ListAll()
 	if errISE(c, err) {
 		return
 	}
@@ -57,7 +57,7 @@ func handleDownload(c *gin.Context) {
 // is a markdown file, it is converted to HTML and written to the zip writer,
 // else the file is written as-is
 func handleDownloadAddFile(w *zip.Writer, f MongoFile) error {
-	log.Println("Adding file to zip:", f.Path)
+	log.Println("Adding file to zip:", f.URI)
 	// create header
 	h, err := zip.FileInfoHeader(&f)
 	if err != nil {
@@ -66,7 +66,7 @@ func handleDownloadAddFile(w *zip.Writer, f MongoFile) error {
 	if path.Base(f.Name()) == "index.html" {
 		h.Name = "index.html"
 	} else {
-		h.Name = filepath.ToSlash(path.Join(FilePathRoot, f.Path))
+		h.Name = filepath.ToSlash(path.Join(URIRoot, f.URI))
 	}
 	h.Method = zip.Deflate
 	zf, err := w.CreateHeader(h)
@@ -89,7 +89,7 @@ func handleDownloadAddFile(w *zip.Writer, f MongoFile) error {
 	if err != nil {
 		return err
 	}
-	defer func(rc io.ReadCloser) { _ = rc.Close() }(rc)
+	defer cls(rc)
 	_, err = io.Copy(zf, rc)
 	if err != nil {
 		return err
