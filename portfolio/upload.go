@@ -145,23 +145,11 @@ func handleUploadZip(size int64, f *os.File) error {
 
 // handleUploadZipGetUri returns the uri for the given zip file and file name;
 // the zip file name is stripped of its extension and the file name is made
-// relative to the zip file name; the resulting path is made relative to the
-// URIRoot directory
+// relative to the zip file name
 func handleUploadZipGetUri(zipName, fileName string) (string, error) {
 	zipName = path.Base(zipName)
 	zipName = zipName[:len(zipName)-len(path.Ext(zipName))]
 	fPath, err := filepath.Rel(zipName, fileName)
-	if err != nil {
-		return "", err
-	}
-	// remove ../ from path
-	if strings.HasPrefix(fPath, "..") {
-		fPath, err = filepath.Rel("..", fPath)
-		if err != nil {
-			return "", err
-		}
-	}
-	fPath, err = filepath.Rel(files.URIRoot, fPath)
 	if err != nil {
 		return "", err
 	}
