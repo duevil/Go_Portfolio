@@ -1,17 +1,23 @@
 package main
 
 import (
-	"files"
+	"content"
 	"github.com/gin-gonic/gin"
 	"log"
 	"net/http"
+	"time"
 )
 
 // handleNotFound handles requests for non-existing routes; servers a 404
 // response with the parsed '404' template as content
 func handleNotFound(c *gin.Context) {
 	log.Println("Route not found")
-	c.HTML(http.StatusNotFound, "404", gin.H{})
+	c.HTML(http.StatusNotFound, "404", content.Page{
+		Title: "404",
+		Base:  c.Request.URL.Path[1:], // remove leading '/'
+		Root:  content.URIRoot,
+		Year:  time.Now().Year(),
+	})
 }
 
 // handleFile handles requests for pages, templates and static files; if the
@@ -21,7 +27,7 @@ func handleFile(c *gin.Context) {
 	file := c.Param("uri")
 	log.Println("File requested:", file)
 	// get file from database
-	f, err := files.GetFromDB(file)
+	f, err := content.GetFromDB(file)
 	if errNotFound(c, err) || errISE(c, err) {
 		return
 	}
@@ -45,10 +51,22 @@ func handleFile(c *gin.Context) {
 	c.DataFromReader(http.StatusOK, f.Filesize, f.Mime, rc, nil)
 }
 
+// handleAdmin handles requests for the admin page; serves the parsed 'admin'
+// template as page
+func handleAdmin(c *gin.Context) {
+	log.Println("Admin requested")
+	c.HTML(http.StatusOK, "admin", content.Page{
+		Title: "Admin",
+		Base:  "admin/",
+		Root:  content.URIRoot,
+		Year:  time.Now().Year(),
+	})
+}
+
 // handleList handles requests to list all files in the database
 func handleList(c *gin.Context) {
 	log.Println("List requested")
-	list, err := files.ListAll()
+	list, err := content.ListAll()
 	if errISE(c, err) {
 		return
 	}
@@ -59,7 +77,7 @@ func handleList(c *gin.Context) {
 func handleDelete(c *gin.Context) {
 	name := c.Param("uri")
 	log.Println("Delete requested:", name)
-	f, err := files.GetFromDB(name)
+	f, err := content.GetFromDB(name)
 	if errNotFound(c, err) || errISE(c, err) {
 		return
 	}

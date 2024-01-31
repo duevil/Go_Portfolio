@@ -9,5 +9,35 @@
     </main>
     {{ template "footer" . }}
     </body>
+    <div id="background-name">
+        Malte
+        Kasolowsky
+    </div>
+    <div id="image-overlay"></div>
+    <script>
+        const imageOverlay = document.getElementById("image-overlay");
+        imageOverlay.addEventListener("click", () => {
+            imageOverlay.style.opacity = '0';
+            imageOverlay.style.pointerEvents = 'none';
+        });
+        document.querySelectorAll("img").forEach(i => i.addEventListener("click", e => {
+            const img = document.createElement("img");
+            img.src = e.target.src;
+            img.alt = e.target.alt;
+            imageOverlay.innerHTML = "";
+            imageOverlay.appendChild(img);
+            imageOverlay.style.opacity = '1';
+            imageOverlay.style.pointerEvents = 'all';
+        }));
+        const ps = document.querySelectorAll("p")
+        for (let psKey in ps) {
+            const s = ps[psKey].innerHTML;
+            const tag = /^\$title:?/gmi.exec(s);
+            if (tag) {
+                document.title = s.replace(tag[0], "").trim();
+                ps[psKey].remove();
+            }
+        }
+    </script>
     </html>
 {{ end }}

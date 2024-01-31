@@ -1,4 +1,4 @@
-package files
+package content
 
 import (
 	"html/template"
@@ -13,6 +13,8 @@ type Page struct {
 	Content template.HTML
 	LastMod time.Time
 	Year    int
+	Base    string
+	Root    string
 }
 
 // CreateHTML creates the HTML representation of the page using the given

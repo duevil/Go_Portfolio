@@ -2,7 +2,7 @@ package main
 
 import (
 	"archive/zip"
-	"files"
+	"content"
 	"github.com/gabriel-vasile/mimetype"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -57,7 +57,8 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 
 	// handle file according to its extension
 	var location string
-	if path.Ext(ff.Filename) == ".zip" {
+	ext := path.Ext(ff.Filename)
+	if ext == ".zip" {
 		location = "/admin/list"
 		err = handleUploadZip(ff.Size, f)
 	} else {
@@ -65,17 +66,21 @@ func handleUpload(c *gin.Context, auth gin.HandlerFunc) {
 		if errISE(c, err) {
 			return
 		}
-		mime, err := mimetype.DetectFile(fPath)
-		if errISE(c, err) {
-			return
+		ok, mime := checkMimeType(ext)
+		if !ok {
+			mt, err := mimetype.DetectFile(fPath)
+			mime = mt.String()
+			if errISE(c, err) {
+				return
+			}
 		}
-		location = path.Join(files.URIRoot, ff.Filename)
-		p := files.MongoFile{
+		location = path.Join(content.URIRoot, ff.Filename)
+		p := content.MongoFile{
 			URI:      "/" + ff.Filename, // add leading slash
 			Filesize: fi.Size(),
 			LastMod:  fi.ModTime(),
-			Mime:     mime.String(),
-			IsMD:     path.Ext(ff.Filename) == ".md",
+			Mime:     mime,
+			IsMD:     ext == ".md",
 		}
 		err = p.Store(f)
 	}
@@ -96,46 +101,12 @@ func handleUploadZip(size int64, f *os.File) error {
 	if err != nil {
 		return err
 	}
-
-	iterateFunc := func(zf *zip.File) error {
-		// we need to open the file twice:
-		// first to get its mime type and then to store it
-		rc, err := zf.Open()
-		if err != nil {
-			return err
-		}
-		defer cls(rc)
-		mime, err := mimetype.DetectReader(rc)
-		if err != nil {
-			return err
-		}
-		rc.Close()
-		// get file uri
-		fPath, err := handleUploadZipGetUri(f.Name(), zf.Name)
-		if err != nil {
-			return err
-		}
-		// open file again and store it
-		rc, err = zf.Open()
-		if err != nil {
-			return err
-		}
-		defer cls(rc)
-		p := files.MongoFile{
-			URI:      "/" + fPath, // add leading slash
-			Filesize: int64(zf.UncompressedSize64),
-			LastMod:  zf.Modified,
-			Mime:     mime.String(),
-			IsMD:     path.Ext(zf.FileInfo().Name()) == ".md",
-		}
-		return p.Store(rc)
-	}
-
+	// iterate over files in zip file
 	for _, zf := range zr.File {
 		if zf.FileInfo().IsDir() {
 			continue
 		}
-		err = iterateFunc(zf)
+		err = handleUploadZipIterateFunc(f.Name(), zf)
 		if err != nil {
 			return err
 		}
@@ -143,22 +114,94 @@ func handleUploadZip(size int64, f *os.File) error {
 	return err
 }
 
-// handleUploadZipGetUri returns the uri for the given zip file and file name;
-// the zip file name is stripped of its extension and the file name is made
-// relative to the zip file name
-func handleUploadZipGetUri(zipName, fileName string) (string, error) {
-	zipName = path.Base(zipName)
-	zipName = zipName[:len(zipName)-len(path.Ext(zipName))]
-	fPath, err := filepath.Rel(zipName, fileName)
+// handleUploadZipIterateFunc is the function that is called for each file in
+// the zip file
+func handleUploadZipIterateFunc(fName string, zf *zip.File) error {
+	// set mime type
+	ext := path.Ext(zf.FileInfo().Name())
+	ok, mime := checkMimeType(ext)
+	if !ok {
+		// open file to detect mime type
+		rc, err := zf.Open()
+		if err != nil {
+			return err
+		}
+		defer cls(rc)
+		mt, err := mimetype.DetectReader(rc)
+		mime = mt.String()
+		if err != nil {
+			return err
+		}
+		rc.Close()
+	}
+	// get file uri
+	fPath := path.Base(fName)
+	fPath = fPath[:len(fPath)-len(path.Ext(fPath))]
+	fPath, err := filepath.Rel(fPath, zf.Name)
 	if err != nil {
-		return "", err
+		return err
 	}
 	// remove ../ from path
 	if strings.HasPrefix(fPath, "..") {
 		fPath, err = filepath.Rel("..", fPath)
 		if err != nil {
-			return "", err
+			return err
 		}
 	}
-	return fPath, nil
+	if err != nil {
+		return err
+	}
+	// open file again and store it
+	rc, err := zf.Open()
+	if err != nil {
+		return err
+	}
+	defer cls(rc)
+	p := content.MongoFile{
+		URI:      "/" + fPath, // add leading slash
+		Filesize: int64(zf.UncompressedSize64),
+		LastMod:  zf.Modified,
+		Mime:     mime,
+		IsMD:     ext == ".md",
+	}
+	return p.Store(rc)
+}
+
+// checkMimeType checks if the given extension is a valid extension and returns
+// the mime type for the extension
+func checkMimeType(ext string) (bool, string) {
+	switch ext {
+	case ".md":
+		return true, "text/markdown; charset=utf-8"
+	case ".html":
+		return true, "text/html; charset=utf-8"
+	case ".css":
+		return true, "text/css; charset=utf-8"
+	case ".js":
+		return true, "application/javascript; charset=utf-8"
+	case ".jpg", ".jpeg":
+		return true, "image/jpeg"
+	case ".png":
+		return true, "image/png"
+	case ".gif":
+		return true, "image/gif"
+	case ".svg":
+		return true, "image/svg+xml"
+	case ".ico":
+		return true, "image/vnd.microsoft.icon"
+	case ".webp":
+		return true, "image/webp"
+	case ".pdf":
+		return true, "application/pdf"
+	case ".zip":
+		return true, "application/zip"
+	case ".json":
+		return true, "application/json"
+	case ".xml":
+		return true, "application/xml"
+	case ".txt":
+		return true, "text/plain; charset=utf-8"
+	default:
+		return false, ""
+	}
 }

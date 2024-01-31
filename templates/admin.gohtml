@@ -1,38 +1,60 @@
-{{ define "config" }}
+{{ define "admin" }}
     <!DOCTYPE html>
     <html lang="de">
     {{ template "head" . }}
     <body>
     {{ template "header" . }}
     <main>
-        <h1>Admin</h1>
-        <p>
-            Websites hinzufügen oder aktualisieren oder statische Dateien herunterladen.
-        </p>
-        <h2>Dateien hochladen</h2>
-        <p>
-            Lade ein ZIP-Archiv hoch, um Websites hinzuzufügen oder zu aktualisieren.
-            Dabei werden Markdown-Dateien im root-Verzeichnis des Archivs in die
-            Server-Datenbank übernommen und aus diesen Daten Websites
-            generiert. Die Dateien müssen die Endung <code>.md</code> haben.
-        </p>
-        <p>
-            Dateien im Verzeichnis <code>static</code> werden unverändert übernommen und
-            in das <code>static</code>-Verzeichnis des Webservers kopiert.
-        </p>
-        <form action="/upload" method="post" enctype="multipart/form-data">
-            <input type="file" name="file" id="file">
-            <input type="submit" value="Hochladen">
-        </form>
-        <h2>Dateien herunterladen</h2>
-        <p>
-            Erzeuge eine ZIP-Datei mit allen statisch generierten Websites und Dateien und lade
-            diese herunter.
-        </p>
-        <form action="/download" method="post">
+        <h1>Admin-Seite</h1>
+        <p>zum Verwalten der Portfolio-Inhalte.</p>
+        <h2>Inhalte hochladen oder aktualisieren</h2>
+        <ul>
+            <li>ZIP-Archive mit mehreren Dateien</li>
+            <li>Einzelne Datei</li>
+        </ul>
+        <label for="file">Datei:&nbsp;</label>
+        <input type="file" name="file" id="file">
+        <input type="button" value="Hochladen" id="upload">
+        <h2>Statische Inhalte herunterladen</h2>
+        <form action="/admin/download" method="get" target="_blank">
             <input type="submit" value="Herunterladen">
         </form>
+        <h2>Inhalte löschen</h2>
+        <label for="del_uri">URI:&nbsp;</label>
+        <input type="text" id="del_uri" value="">
+        <input type="button" value="Löschen" id="delete">
+        <h2>JSON-Liste aller Inhalte</h2>
+        <iframe id="list" name="list" src="/admin/list" allow="clipboard-read"></iframe>
+        <form action="/admin/list" method="get" target="list">
+            <input type="button" value="Kopieren" id="copy">
+            <input type="submit" value="Abrufen">
+        </form>
     </main>
+    <script>
+        document.getElementById("upload").addEventListener("click", () => {
+            const file = document.getElementById("file").files[0];
+            const formData = new FormData();
+            formData.append("file", file);
+            fetch("/admin/upload", {method: "POST", body: formData}).then(response => {
+                if (response.ok) alert("Inhalt \n'" + file.name + "'\n wurde hochgeladen.");
+                else alert("Inhalt \n'" + file.name + "'\n konnte nicht hochgeladen werden.");
+            });
+        });
+        document.getElementById("delete").addEventListener("click", () => {
+            const uri = document.getElementById("del_uri").value;
+            let c = confirm("Inhalt \n'" + uri + "'\n löschen?")
+            if (!c) return;
+            fetch("/admin/" + uri, {method: "DELETE"}).then(response => {
+                if (response.ok) alert("Inhalt \n'" + uri + "'\n wurde gelöscht.");
+                else alert("Inhalt \n'" + uri + "'\n konnte nicht gelöscht werden.");
+            });
+        });
+        document.getElementById("copy").addEventListener("click", () => {
+            navigator.clipboard
+                .writeText(document.getElementById("list").contentWindow.document.body.innerText)
+                .then(() => alert("JSON in Zwischenablage kopiert."));
+        });
+    </script>
     {{ template "footer" . }}
     </body>
     </html>

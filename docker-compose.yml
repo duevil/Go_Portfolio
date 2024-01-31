@@ -2,7 +2,6 @@ version: '3'
 
 volumes:
   database_savings:
-  server_savings:
 services:
   mdb:
     image: mongo:7.0.4
@@ -10,7 +9,7 @@ services:
       MONGO_INITDB_ROOT_USERNAME: root
       MONGO_INITDB_ROOT_PASSWORD: root_password
     volumes:
-      - database_savings:/data/db
+      - database_savings:/content/db
     ports:
       - "27017:27017"
   server:
@@ -21,8 +20,6 @@ services:
       ADMIN_PASSWORD: 123456
       # TODO: Change this to release
       GIN_MODE: debug
-    volumes:
-      - server_savings:/app/data
     ports:
       - "9000:9000"
     depends_on:
@@ -30,4 +27,3 @@ services:
     links:
       - mdb
     build: .
-    working_dir: /app/data

@@ -1,4 +1,4 @@
-package files
+package content
 
 import (
 	"bytes"
@@ -25,7 +25,7 @@ var (
 // maxFileSize is the maximum size for file to be stored in the database
 const maxFileSize = 15 << 20 // 15 MiB
 // URIRoot is the uri root for files
-const URIRoot = "files"
+const URIRoot = "content"
 
 var ErrNotFound = errors.Join(mongo.ErrNoDocuments, errors.New("file not found"))
 
@@ -56,7 +56,7 @@ type MongoFile struct {
 // otherwise.
 func (p *MongoFile) Store(reader io.Reader) error {
 	// check fields
-	if p.URI == "" || p.Filesize == 0 {
+	if p.URI == "" || p.Filesize < 0 {
 		return errors.New("file's Filesize, URI or LastMod field is not set")
 	}
 	if p.Filesize > maxFileSize {
@@ -150,11 +150,27 @@ func (p *MongoFile) ToPage() (Page, error) {
 		}
 		p.Content = primitive.Binary{Data: buf.Bytes()}
 	}
+	var base string
+	isIndex, err := path.Match("index.*", path.Base(p.Name()))
+	if err != nil {
+		return Page{}, err
+	}
+	if isIndex {
+		base = path.Base(p.Name())
+	} else {
+		base = path.Join(URIRoot, p.Name())
+	}
+	// due to a bug from the blackfriday package
+	// we need to convert Windows (CRLF) and Mac (CR) EOLs to UNIX (LF)
+	p.Content.Data = NormalizeEOL(p.Content.Data)
 	return Page{
-		Title:   p.URI,
+		// strip uri from directory and extension
+		Title:   path.Base(p.URI[:len(p.URI)-len(path.Ext(p.URI))]),
 		Content: template.HTML(blackfriday.Run(p.Content.Data)),
 		LastMod: p.LastMod,
 		Year:    time.Now().Year(),
+		Base:    base,
+		Root:    URIRoot,
 	}, nil
 }
 
@@ -237,3 +253,42 @@ func ListAll() ([]MongoFile, error) {
 }
 
 func SetCollection(c *mongo.Collection) { col = c }
+
+// NormalizeEOL will convert Windows (CRLF) and Mac (CR) EOLs to UNIX (LF)
+//
+// Taken from
+// https://github.com/go-gitea/gitea/blob/dc8036dcc680abab52b342d18181a5ee42f40318/modules/util/util.go#L68-L102
+func NormalizeEOL(input []byte) []byte {
+	var right, left, pos int
+	if right = bytes.IndexByte(input, '\r'); right == -1 {
+		return input
+	}
+	length := len(input)
+	tmp := make([]byte, length)
+
+	// We know that left < length because otherwise right would be -1 from IndexByte.
+	copy(tmp[pos:pos+right], input[left:left+right])
+	pos += right
+	tmp[pos] = '\n'
+	left += right + 1
+	pos++
+
+	for left < length {
+		if input[left] == '\n' {
+			left++
+		}
+
+		right = bytes.IndexByte(input[left:], '\r')
+		if right == -1 {
+			copy(tmp[pos:], input[left:])
+			pos += length - left
+			break
+		}
+		copy(tmp[pos:pos+right], input[left:left+right])
+		pos += right
+		tmp[pos] = '\n'
+		left += right + 1
+		pos++
+	}
+	return tmp[:pos]
+}

@@ -1,15 +1,14 @@
 package main
 
 import (
+	"content"
 	"context"
-	"files"
 	"github.com/gin-gonic/gin"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.mongodb.org/mongo-driver/mongo/options"
 	"go.mongodb.org/mongo-driver/mongo/readpref"
 	"html/template"
 	"log"
-	"net/http"
 	"os"
 	"path"
 )
@@ -21,24 +20,24 @@ func main() {
 	{
 		log.Println("Connecting to database")
 		// open database connection
-		files.Context = context.Background()
+		content.Context = context.Background()
 		auth := options.Credential{
 			Username: os.Getenv("MDB_ROOT_USERNAME"),
 			Password: os.Getenv("MDB_ROOT_PASSWORD"),
 		}
 		opt := options.Client().ApplyURI("mongodb://mdb:27017")
 		opt.SetAuth(auth)
-		client, err := mongo.Connect(files.Context, opt)
+		client, err := mongo.Connect(content.Context, opt)
 		checkErr(err)
 		// close database connection on exit
-		defer func(c *mongo.Client) { checkErr(c.Disconnect(files.Context)) }(client)
+		defer func(c *mongo.Client) { checkErr(c.Disconnect(content.Context)) }(client)
 		// check whether the database is reachable
-		err = client.Ping(files.Context, readpref.Primary())
+		err = client.Ping(content.Context, readpref.Primary())
 		checkErr(err)
 		log.Println("Database connection established, initializing database")
 		// create database and collection
 		db := client.Database(getEnvOrElse("DB_NAME", "portfolio"))
-		files.SetCollection(db.Collection(getEnvOrElse("DB_FILE_COL", files.URIRoot)))
+		content.SetCollection(db.Collection(getEnvOrElse("DB_FILE_COL", content.URIRoot)))
 		log.Println("Database initialized")
 	}
 	// gin initialization
@@ -50,13 +49,13 @@ func main() {
 		router.NoRoute(handleNotFound)
 		indexRedirect := func(c *gin.Context) {
 			// handle index redirect
-			c.Request.URL.Path = path.Join("/", files.URIRoot, "index.html")
+			c.Request.URL.Path = path.Join("/", content.URIRoot, "index.html")
 			router.HandleContext(c)
 		}
 		router.GET("/", indexRedirect)
 		router.GET("index", indexRedirect)
 		router.GET("index.html", indexRedirect)
-		router.GET(path.Join(files.URIRoot, "*uri"), handleFile)
+		router.GET(path.Join(content.URIRoot, "*uri"), handleFile)
 		// add auth routes
 		adminUser := getEnvOrElse("ADMIN_USERNAME", "admin")
 		adminPass := getEnvOrElse("ADMIN_PASSWORD", "admin")
@@ -68,7 +67,7 @@ func main() {
 			handleUpload(c, gin.BasicAuth(gin.Accounts{adminUser: adminPass}))
 		})
 		auth := router.Group("/admin", gin.BasicAuth(gin.Accounts{adminUser: adminPass}))
-		auth.GET("/", func(c *gin.Context) { c.Redirect(http.StatusTemporaryRedirect, "/admin/list") })
+		auth.GET("/", handleAdmin)
 		auth.GET("/download", handleDownload)
 		auth.GET("/list", handleList)
 		auth.DELETE("*uri", handleDelete)
