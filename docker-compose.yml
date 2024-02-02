@@ -18,8 +18,7 @@ services:
       MDB_ROOT_USERNAME: root
       MDB_ROOT_PASSWORD: root_password
       ADMIN_PASSWORD: 123456
-      # TODO: Change this to release
-      GIN_MODE: debug
+      GIN_MODE: release
     ports:
       - "9000:9000"
     depends_on:
